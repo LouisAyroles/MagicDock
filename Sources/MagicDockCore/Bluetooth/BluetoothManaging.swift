@@ -39,7 +39,11 @@ public enum BluetoothOperationError: LocalizedError, Equatable, Sendable {
         case let .pairingTimedOut(address):
             "Pairing timed out for \(address)."
         case let .pairingFailed(address, code):
-            "Pairing failed for \(address) with Bluetooth code \(code)."
+            if code == 2 {
+                "Pairing could not reach \(address). Turn the device off and on, then try again."
+            } else {
+                "Pairing failed for \(address) with Bluetooth code \(code)."
+            }
         case .unpairUnavailable:
             "This macOS version does not expose the Bluetooth removal operation."
         case let .unpairFailed(address):

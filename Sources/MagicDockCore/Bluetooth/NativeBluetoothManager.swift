@@ -114,19 +114,11 @@ public final class NativeBluetoothManager: BluetoothManaging, @unchecked Sendabl
             let device = try Self.requiredDevice(for: address)
             guard device.isPaired() else { return }
 
-            if device.isConnected() {
-                let closeResult = device.closeConnection()
-                guard closeResult == kIOReturnSuccess || !device.isConnected() else {
-                    throw BluetoothOperationError.operationFailed(
-                        operation: "disconnect before unpair",
-                        code: closeResult
-                    )
-                }
-            }
-
             // IOBluetooth has no public unpair API. macOS implements `remove` on
             // IOBluetoothDevice; keeping this selector isolated makes the private
-            // dependency explicit and replaceable.
+            // dependency explicit and replaceable. Invoke it while the baseband connection is
+            // still active: disconnecting first can leave a Magic accessory holding its old bond
+            // and therefore unavailable to the Mac that needs to pair next.
             let removeSelector = NSSelectorFromString("remove")
             guard device.responds(to: removeSelector) else {
                 throw BluetoothOperationError.unpairUnavailable

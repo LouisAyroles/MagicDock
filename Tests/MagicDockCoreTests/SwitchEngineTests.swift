@@ -74,14 +74,13 @@ struct SwitchEngineTests {
         #expect(remoteKinds == [.ping, .release, .claim])
         let operations = await bluetooth.operations
         #expect(
-            operations.suffix(3) == [
-                "disconnect:AA:BB:CC:DD:EE:01",
+            operations.suffix(2) == [
                 "unpair:AA:BB:CC:DD:EE:01",
                 "unpair:AA:BB:CC:DD:EE:02",
             ])
     }
 
-    @Test("Releases connected devices in order")
+    @Test("Removes pairings without disconnecting first")
     func releasesDevices() async throws {
         let sourceDevices = configuredDevices.map {
             BluetoothDeviceSnapshot(
@@ -100,9 +99,7 @@ struct SwitchEngineTests {
         let operations = await bluetooth.operations
         #expect(
             operations == [
-                "disconnect:AA:BB:CC:DD:EE:01",
                 "unpair:AA:BB:CC:DD:EE:01",
-                "disconnect:AA:BB:CC:DD:EE:02",
                 "unpair:AA:BB:CC:DD:EE:02",
             ])
     }

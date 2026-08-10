@@ -245,13 +245,10 @@ public actor SwitchEngine {
 
     private func releaseOne(_ peripheral: ConfiguredPeripheral) async throws {
         guard let snapshot = await bluetooth.snapshot(for: peripheral.address) else { return }
-        if snapshot.isConnected {
-            try await bluetooth.disconnect(address: peripheral.address)
-        }
-
-        let updatedSnapshot = await bluetooth.snapshot(for: peripheral.address)
-        if updatedSnapshot?.isPaired == true {
+        if snapshot.isPaired {
             try await bluetooth.unpair(address: peripheral.address)
+        } else if snapshot.isConnected {
+            try await bluetooth.disconnect(address: peripheral.address)
         }
     }
 
