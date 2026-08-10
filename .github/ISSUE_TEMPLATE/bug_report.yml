@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible MagicDock problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Do not include pairing keys or private Bluetooth addresses.
+  - type: input
+    id: macos
+    attributes:
+      label: macOS versions
+      description: Include the version used on both Macs.
+    validations:
+      required: true
+  - type: input
+    id: devices
+    attributes:
+      label: Device models and firmware
+      description: List the Magic Keyboard and Magic Mouse models without Bluetooth addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed pairing keys and complete Bluetooth addresses from this report.
+          required: true
+        - label: I had a backup input device available while testing.
+          required: true

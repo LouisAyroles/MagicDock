@@ -1,0 +1,332 @@
+import AppKit
+import Combine
+import Foundation
+import MagicDockCore
+
+@MainActor
+final class AppModel: ObservableObject {
+    @Published private(set) var pairedDevices: [BluetoothDeviceSnapshot] = []
+    @Published private(set) var deviceStates: [String: BluetoothDeviceSnapshot] = [:]
+    @Published private(set) var peers: [DiscoveredPeer] = []
+    @Published private(set) var progress = SwitchProgress(phase: .idle, message: "Ready")
+    @Published private(set) var isBusy = false
+    @Published private(set) var launchAtLogin = LoginItemController.isEnabled
+
+    let settings: SettingsStore
+
+    private let bluetooth: NativeBluetoothManager
+    private let switchEngine: SwitchEngine
+    private let peerService: PeerService
+    private var refreshTask: Task<Void, Never>?
+    private var releaseRecoveryTask: Task<Void, Never>?
+
+    init() {
+        let settings = SettingsStore()
+        let bluetooth = NativeBluetoothManager()
+
+        self.settings = settings
+        self.bluetooth = bluetooth
+        self.switchEngine = SwitchEngine(bluetooth: bluetooth)
+        self.peerService = PeerService(
+            nodeID: settings.nodeID,
+            displayName: Host.current().localizedName ?? "Mac",
+            pairingKey: settings.pairingKey
+        )
+
+        configurePeerService()
+        peerService.start()
+        startRefreshingDevices()
+    }
+
+    deinit {
+        refreshTask?.cancel()
+        releaseRecoveryTask?.cancel()
+        peerService.stop()
+    }
+
+    var configuredDevices: [ConfiguredPeripheral] {
+        settings.configuredDevices
+    }
+
+    var pairingKeyDisplay: String {
+        settings.pairingKey.displayValue
+    }
+
+    var selectedPeer: DiscoveredPeer? {
+        guard let selectedPeerID = settings.selectedPeerID else { return peers.first }
+        return peers.first { $0.id == selectedPeerID } ?? peers.first
+    }
+
+    var hasControl: Bool {
+        !configuredDevices.isEmpty
+            && configuredDevices.allSatisfy {
+                deviceStates[$0.address]?.isConnected == true
+            }
+    }
+
+    var menuBarIcon: String {
+        if isBusy { return "arrow.triangle.2.circlepath" }
+        if hasControl { return "keyboard.fill" }
+        return "keyboard"
+    }
+
+    var canTakeControl: Bool {
+        !isBusy && selectedPeer != nil
+    }
+
+    func selectPeer(id: String?) {
+        settings.selectedPeerID = id
+    }
+
+    func isConfigured(_ snapshot: BluetoothDeviceSnapshot) -> Bool {
+        configuredDevices.contains { $0.address == snapshot.address }
+    }
+
+    func toggleDevice(_ snapshot: BluetoothDeviceSnapshot) {
+        settings.toggle(snapshot)
+        Task { await refreshDevices() }
+    }
+
+    func importPairingKey(_ value: String) {
+        do {
+            try settings.replacePairingKey(with: value)
+            progress = .init(phase: .idle, message: "Pairing key updated.")
+            Task { await peerService.updatePairingKey(settings.pairingKey) }
+        } catch {
+            progress = .init(phase: .failed, message: error.localizedDescription)
+        }
+    }
+
+    func copyPairingKey() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(pairingKeyDisplay, forType: .string)
+        progress = .init(phase: .idle, message: "Pairing key copied.")
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try LoginItemController.setEnabled(enabled)
+            launchAtLogin = LoginItemController.isEnabled
+        } catch {
+            launchAtLogin = LoginItemController.isEnabled
+            progress = .init(phase: .failed, message: error.localizedDescription)
+        }
+    }
+
+    func syncConfigurationFromPeer() {
+        guard !isBusy else { return }
+        isBusy = true
+
+        Task {
+            defer { isBusy = false }
+            do {
+                try await syncConfigurationFromPeerNow()
+                progress = .init(phase: .idle, message: "Device configuration synchronized.")
+                await refreshDevices()
+            } catch {
+                progress = .init(phase: .failed, message: error.localizedDescription)
+            }
+        }
+    }
+
+    func takeControl() {
+        guard !isBusy, let peer = selectedPeer else { return }
+        cancelPendingReleaseRecovery()
+        isBusy = true
+
+        Task {
+            defer { isBusy = false }
+            do {
+                if configuredDevices.isEmpty {
+                    try await syncConfigurationFromPeerNow()
+                }
+
+                let devices = configuredDevices
+                try await switchEngine.takeControl(
+                    of: devices,
+                    remote: { [peerService] command in
+                        try await peerService.send(command, to: peer)
+                    },
+                    progress: progressHandler()
+                )
+                await refreshDevices()
+            } catch {
+                progress = .init(phase: .failed, message: error.localizedDescription)
+                await refreshDevices()
+            }
+        }
+    }
+
+    private func configurePeerService() {
+        peerService.setPeersChangedHandler { [weak self] peers in
+            Task { @MainActor in
+                guard let self else { return }
+                self.peers = peers
+
+                if let selectedID = self.settings.selectedPeerID,
+                    peers.contains(where: { $0.id == selectedID })
+                {
+                    return
+                }
+                self.settings.selectedPeerID = peers.first?.id
+            }
+        }
+
+        peerService.setErrorHandler { [weak self] message in
+            Task { @MainActor in
+                self?.progress = .init(phase: .failed, message: message)
+            }
+        }
+
+        peerService.setRequestHandler { [weak self] command in
+            guard let self else {
+                return PeerResponse(
+                    requestID: command.requestID,
+                    success: false,
+                    message: "MagicDock is shutting down."
+                )
+            }
+            return await self.handleRemote(command)
+        }
+    }
+
+    private func startRefreshingDevices() {
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshDevices()
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
+    }
+
+    private func refreshDevices() async {
+        let paired = await bluetooth.pairedDevices()
+        pairedDevices =
+            paired
+            .filter { $0.kind != .other }
+            .sorted { lhs, rhs in
+                if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
+                return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
+
+        if configuredDevices.isEmpty, !settings.didAutoselectDevices {
+            let magicDevices = pairedDevices.filter {
+                $0.name.localizedCaseInsensitiveContains("Magic")
+            }
+            if !magicDevices.isEmpty {
+                settings.setConfiguredDevices(magicDevices.map(ConfiguredPeripheral.init))
+                settings.didAutoselectDevices = true
+            }
+        }
+
+        var states = Dictionary(uniqueKeysWithValues: paired.map { ($0.address, $0) })
+        for peripheral in configuredDevices where states[peripheral.address] == nil {
+            if let snapshot = await bluetooth.snapshot(for: peripheral.address) {
+                states[peripheral.address] = snapshot
+            }
+        }
+        deviceStates = states
+    }
+
+    private func syncConfigurationFromPeerNow() async throws {
+        guard let peer = selectedPeer else {
+            throw AppModelError.noPeer
+        }
+
+        let command = PeerCommand(kind: .status)
+        let response = try await peerService.send(command, to: peer)
+        let remoteConfiguration: [ConfiguredPeripheral]
+
+        if !response.configuredDevices.isEmpty {
+            remoteConfiguration = response.configuredDevices
+        } else {
+            remoteConfiguration = response.devices
+                .filter { $0.kind != .other }
+                .map(ConfiguredPeripheral.init)
+        }
+
+        guard !remoteConfiguration.isEmpty else {
+            throw AppModelError.peerHasNoDevices
+        }
+        settings.setConfiguredDevices(remoteConfiguration)
+        settings.didAutoselectDevices = true
+    }
+
+    private func handleRemote(_ command: PeerCommand) async -> PeerResponse {
+        do {
+            switch command.kind {
+            case .ping:
+                return .success(for: command, message: "pong")
+            case .status:
+                let devices = await bluetooth.pairedDevices()
+                return .success(
+                    for: command,
+                    devices: devices,
+                    configuredDevices: configuredDevices
+                )
+            case .release:
+                try await switchEngine.release(command.devices, progress: progressHandler())
+                scheduleReleaseRecovery(for: command.devices)
+                await refreshDevices()
+                return .success(for: command)
+            case .claim:
+                cancelPendingReleaseRecovery()
+                try await switchEngine.claim(command.devices, progress: progressHandler())
+                await refreshDevices()
+                return .success(for: command)
+            case .complete:
+                cancelPendingReleaseRecovery()
+                return .success(for: command)
+            }
+        } catch {
+            progress = .init(phase: .failed, message: error.localizedDescription)
+            await refreshDevices()
+            return .failure(for: command, error: error)
+        }
+    }
+
+    private func progressHandler() -> SwitchEngine.ProgressHandler {
+        { [weak self] progress in
+            Task { @MainActor in
+                self?.progress = progress
+            }
+        }
+    }
+
+    private func scheduleReleaseRecovery(for devices: [ConfiguredPeripheral]) {
+        releaseRecoveryTask?.cancel()
+        releaseRecoveryTask = Task { [weak self, devices] in
+            try? await Task.sleep(for: .seconds(180))
+            guard !Task.isCancelled, let self else { return }
+
+            do {
+                try await self.switchEngine.claim(devices, progress: self.progressHandler())
+                await self.refreshDevices()
+            } catch {
+                self.progress = .init(
+                    phase: .failed,
+                    message: "Timed recovery failed: \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func cancelPendingReleaseRecovery() {
+        releaseRecoveryTask?.cancel()
+        releaseRecoveryTask = nil
+    }
+}
+
+enum AppModelError: LocalizedError {
+    case noPeer
+    case peerHasNoDevices
+
+    var errorDescription: String? {
+        switch self {
+        case .noPeer:
+            "No other Mac is available on the local network."
+        case .peerHasNoDevices:
+            "The other Mac has no keyboard or mouse configured."
+        }
+    }
+}
