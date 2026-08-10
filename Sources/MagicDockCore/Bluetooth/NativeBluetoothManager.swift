@@ -89,15 +89,23 @@ public final class NativeBluetoothManager: BluetoothManaging, @unchecked Sendabl
                 )
             }
 
-            pairer.delegate = nil
-            pairer.stop()
-
             guard delegate.isFinished else {
+                pairer.delegate = nil
+                pairer.stop()
                 throw BluetoothOperationError.pairingTimedOut(address)
             }
             guard delegate.result == kIOReturnSuccess, device.isPaired() else {
+                pairer.delegate = nil
+                pairer.stop()
                 throw BluetoothOperationError.pairingFailed(address: address, code: delegate.result)
             }
+
+            pairer.delegate = nil
+
+            // `stop()` is only for cancelling an active pairing attempt. Calling it after a
+            // successful pairing explicitly disconnects the device, which makes an immediate
+            // follow-up connection likely to time out. Let the completed pairer be released
+            // naturally so the baseband connection established during pairing stays available.
         }
     }
 

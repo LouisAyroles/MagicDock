@@ -27,15 +27,18 @@ public struct RetryPolicy: Equatable, Sendable {
     public let pairingAttempts: Int
     public let connectionAttempts: Int
     public let delays: [Duration]
+    public let handoffSettleDelay: Duration
 
     public init(
-        pairingAttempts: Int = 2,
+        pairingAttempts: Int = 3,
         connectionAttempts: Int = 3,
-        delays: [Duration] = [.milliseconds(400), .seconds(1), .seconds(2)]
+        delays: [Duration] = [.seconds(1), .seconds(2), .seconds(3)],
+        handoffSettleDelay: Duration = .seconds(1)
     ) {
         self.pairingAttempts = max(1, pairingAttempts)
         self.connectionAttempts = max(1, connectionAttempts)
         self.delays = delays.isEmpty ? [.zero] : delays
+        self.handoffSettleDelay = max(.zero, handoffSettleDelay)
     }
 
     public static let `default` = RetryPolicy()
@@ -103,6 +106,10 @@ public actor SwitchEngine {
                     message: "Releasing the devices from the other Mac…"
                 ))
             try await requireSuccess(remote(PeerCommand(kind: .release, devices: devicesToTransfer)))
+
+            // Magic accessories need a short interval after the source removes its bond before
+            // they reliably accept a baseband connection from the destination Mac.
+            try await Task.sleep(for: retryPolicy.handoffSettleDelay)
 
             do {
                 for peripheral in devicesToTransfer {

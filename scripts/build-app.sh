@@ -24,11 +24,17 @@ mkdir -p "${macos_directory}"
 cp "${binary_directory}/MagicDock" "${macos_directory}/MagicDock"
 cp "${repository_root}/Config/Info.plist" "${contents_directory}/Info.plist"
 
+app_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${contents_directory}/Info.plist")"
+if [[ -z "${app_version}" ]]; then
+    print -u2 "Could not read the app version from Info.plist"
+    exit 1
+fi
+
 signing_identity="${CODE_SIGN_IDENTITY:--}"
 codesign --force --options runtime --sign "${signing_identity}" "${application_directory}"
 codesign --verify --deep --strict --verbose=2 "${application_directory}"
 
-archive_path="${distribution_directory}/MagicDock-0.1.0.zip"
+archive_path="${distribution_directory}/MagicDock-${app_version}.zip"
 rm -f -- "${archive_path}"
 ditto -c -k --norsrc --noextattr --keepParent "${application_directory}" "${archive_path}"
 

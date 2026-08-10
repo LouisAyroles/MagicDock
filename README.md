@@ -81,11 +81,13 @@ and choose **Open**. Official notarized releases are not part of the MVP yet.
 
 ## First-time setup
 
-1. Open MagicDock on both Macs and grant Bluetooth and Local Network access.
-2. On the Mac currently connected to the keyboard and mouse, confirm both devices are selected.
-3. Open **Secure pairing**, copy that Mac's key, and enter the same key on the other Mac.
-4. Wait for the other Mac to appear. If needed, use **Sync from peer** to copy the device list.
-5. On the destination Mac, click **Take Control**.
+1. Cable-pair each Magic accessory with both Macs once. Pair the destination first and the Mac that
+   should initially have control last.
+2. Open MagicDock on both Macs and grant Bluetooth and Local Network access.
+3. On the Mac currently connected to the keyboard and mouse, confirm both devices are selected.
+4. Open **Secure pairing**, copy that Mac's key, and enter the same key on the other Mac.
+5. Wait for the other Mac to appear. If needed, use **Sync from peer** to copy the device list.
+6. On the destination Mac, click **Take Control**.
 
 The pairing key is generated locally, stored in Keychain, and never sent over the network. Sharing
 the key is the explicit trust step between the two installations.
@@ -112,7 +114,7 @@ protocols so the full handoff and rollback flows can be tested without touching 
 - Both Macs must be awake and reachable on the same local network.
 - The current build script produces a binary for the architecture of the Mac that runs it. Build on
   each Mac when mixing Apple silicon and Intel hardware.
-- Automatic switching when a USB-C dock is attached is planned, not included in v0.1.0.
+- Automatic switching when a USB-C dock is attached is planned, not included in the current MVP.
 
 ## Security
 

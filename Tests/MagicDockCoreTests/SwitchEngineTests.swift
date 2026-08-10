@@ -11,7 +11,12 @@ struct SwitchEngineTests {
         let remote = RemoteRecorder()
         let engine = SwitchEngine(
             bluetooth: bluetooth,
-            retryPolicy: RetryPolicy(pairingAttempts: 1, connectionAttempts: 1, delays: [])
+            retryPolicy: RetryPolicy(
+                pairingAttempts: 1,
+                connectionAttempts: 1,
+                delays: [],
+                handoffSettleDelay: .zero
+            )
         )
 
         try await engine.takeControl(of: configuredDevices) { command in
@@ -42,7 +47,12 @@ struct SwitchEngineTests {
         let remote = RemoteRecorder()
         let engine = SwitchEngine(
             bluetooth: bluetooth,
-            retryPolicy: RetryPolicy(pairingAttempts: 1, connectionAttempts: 1, delays: [])
+            retryPolicy: RetryPolicy(
+                pairingAttempts: 1,
+                connectionAttempts: 1,
+                delays: [],
+                handoffSettleDelay: .zero
+            )
         )
 
         do {
@@ -114,7 +124,12 @@ struct SwitchEngineTests {
         )
         let engine = SwitchEngine(
             bluetooth: bluetooth,
-            retryPolicy: RetryPolicy(pairingAttempts: 1, connectionAttempts: 1, delays: [])
+            retryPolicy: RetryPolicy(
+                pairingAttempts: 1,
+                connectionAttempts: 1,
+                delays: [],
+                handoffSettleDelay: .zero
+            )
         )
 
         do {

@@ -34,5 +34,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: MagicDock-${{ runner.arch }}
-          path: dist/MagicDock-0.1.0.zip
+          path: dist/MagicDock-*.zip
           if-no-files-found: error
