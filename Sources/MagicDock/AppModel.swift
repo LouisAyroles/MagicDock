@@ -19,6 +19,7 @@ final class AppModel: ObservableObject {
     private let peerService: PeerService
     private var refreshTask: Task<Void, Never>?
     private var releaseRecoveryTask: Task<Void, Never>?
+    private var offlineClaimTask: Task<Void, Never>?
 
     init() {
         let settings = SettingsStore()
@@ -34,13 +35,18 @@ final class AppModel: ObservableObject {
         )
 
         configurePeerService()
+        AppLifecycleController.shared.releaseBeforeTermination = { [weak self] in
+            await self?.releaseBeforeTermination()
+        }
         peerService.start()
         startRefreshingDevices()
+        scheduleAutomaticOfflineClaim()
     }
 
     deinit {
         refreshTask?.cancel()
         releaseRecoveryTask?.cancel()
+        offlineClaimTask?.cancel()
         peerService.stop()
     }
 
@@ -50,6 +56,10 @@ final class AppModel: ObservableObject {
 
     var pairingKeyDisplay: String {
         settings.pairingKey.displayValue
+    }
+
+    var automaticallyClaimOffline: Bool {
+        settings.automaticallyClaimOffline
     }
 
     var selectedPeer: DiscoveredPeer? {
@@ -71,7 +81,12 @@ final class AppModel: ObservableObject {
     }
 
     var canTakeControl: Bool {
-        !isBusy && selectedPeer != nil
+        !isBusy && (selectedPeer != nil || !configuredDevices.isEmpty)
+    }
+
+    var takeControlTitle: String {
+        if hasControl { return "Already in control" }
+        return selectedPeer == nil ? "Take Offline Control" : "Take Control"
     }
 
     func selectPeer(id: String?) {
@@ -113,6 +128,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func setAutomaticallyClaimOffline(_ enabled: Bool) {
+        settings.automaticallyClaimOffline = enabled
+        if enabled {
+            scheduleAutomaticOfflineClaim()
+        } else {
+            offlineClaimTask?.cancel()
+            offlineClaimTask = nil
+        }
+    }
+
     func syncConfigurationFromPeer() {
         guard !isBusy else { return }
         isBusy = true
@@ -130,25 +155,31 @@ final class AppModel: ObservableObject {
     }
 
     func takeControl() {
-        guard !isBusy, let peer = selectedPeer else { return }
+        guard !isBusy else { return }
+        let peer = selectedPeer
         cancelPendingReleaseRecovery()
+        offlineClaimTask?.cancel()
         isBusy = true
 
         Task {
             defer { isBusy = false }
             do {
-                if configuredDevices.isEmpty {
+                if configuredDevices.isEmpty, peer != nil {
                     try await syncConfigurationFromPeerNow()
                 }
 
                 let devices = configuredDevices
-                try await switchEngine.takeControl(
-                    of: devices,
-                    remote: { [peerService] command in
-                        try await peerService.send(command, to: peer)
-                    },
-                    progress: progressHandler()
-                )
+                if let peer {
+                    try await switchEngine.takeControl(
+                        of: devices,
+                        remote: { [peerService] command in
+                            try await peerService.send(command, to: peer)
+                        },
+                        progress: progressHandler()
+                    )
+                } else {
+                    try await switchEngine.claim(devices, progress: progressHandler())
+                }
                 await refreshDevices()
             } catch {
                 progress = .init(phase: .failed, message: error.localizedDescription)
@@ -162,6 +193,13 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.peers = peers
+
+                if peers.isEmpty {
+                    self.scheduleAutomaticOfflineClaim()
+                } else {
+                    self.offlineClaimTask?.cancel()
+                    self.offlineClaimTask = nil
+                }
 
                 if let selectedID = self.settings.selectedPeerID,
                     peers.contains(where: { $0.id == selectedID })
@@ -196,6 +234,38 @@ final class AppModel: ObservableObject {
                 await self?.refreshDevices()
                 try? await Task.sleep(for: .seconds(3))
             }
+        }
+    }
+
+    private func scheduleAutomaticOfflineClaim() {
+        offlineClaimTask?.cancel()
+        guard settings.automaticallyClaimOffline else { return }
+
+        offlineClaimTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled, let self else { return }
+            await self.claimOfflineIfAppropriate()
+        }
+    }
+
+    private func claimOfflineIfAppropriate() async {
+        guard settings.automaticallyClaimOffline,
+            peers.isEmpty,
+            !configuredDevices.isEmpty,
+            !hasControl,
+            !isBusy
+        else { return }
+
+        isBusy = true
+        defer { isBusy = false }
+
+        do {
+            progress = .init(phase: .checkingPeer, message: "The other Mac is offline; reclaiming devices…")
+            try await switchEngine.claim(configuredDevices, progress: progressHandler())
+            await refreshDevices()
+        } catch {
+            progress = .init(phase: .failed, message: error.localizedDescription)
+            await refreshDevices()
         }
     }
 
@@ -314,6 +384,16 @@ final class AppModel: ObservableObject {
     private func cancelPendingReleaseRecovery() {
         releaseRecoveryTask?.cancel()
         releaseRecoveryTask = nil
+    }
+
+    private func releaseBeforeTermination() async {
+        offlineClaimTask?.cancel()
+        cancelPendingReleaseRecovery()
+        peerService.stop()
+        await switchEngine.releaseBeforeTermination(
+            configuredDevices,
+            progress: progressHandler()
+        )
     }
 }
 

@@ -188,10 +188,44 @@ public actor SwitchEngine {
         guard !devices.isEmpty else { throw SwitchEngineError.noDevicesConfigured }
 
         for peripheral in devices {
+            let snapshot = await bluetooth.snapshot(for: peripheral.address)
+            if snapshot?.isPaired == true, snapshot?.isConnected == false {
+                try await bluetooth.unpair(address: peripheral.address)
+            }
             try await ensureClaimed(peripheral, progress: progress)
         }
         try await verify(devices, progress: progress)
         progress(.init(phase: .complete, message: "Devices reclaimed."))
+    }
+
+    /// Relinquishes local devices without attempting rollback. This is used during normal app or
+    /// system termination, when reconnecting the devices to a Mac that is shutting down would be
+    /// counterproductive. The operation waits briefly for an in-flight handoff, then gives up so it
+    /// cannot hold up macOS indefinitely.
+    public func releaseBeforeTermination(
+        _ devices: [ConfiguredPeripheral],
+        waitTimeout: Duration = .seconds(3),
+        progress: @escaping ProgressHandler = { _ in }
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: max(.zero, waitTimeout))
+
+        while isBusy, clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+
+        let devices = Self.unique(devices)
+        guard !devices.isEmpty else { return }
+
+        progress(.init(phase: .releasingSource, message: "Releasing devices before shutdown…"))
+        for peripheral in devices {
+            try? await releaseOne(peripheral)
+        }
+        progress(.init(phase: .complete, message: "Devices released for the other Mac."))
     }
 
     private func ensureClaimed(

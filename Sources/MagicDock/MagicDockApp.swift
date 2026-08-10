@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct MagicDockApp: App {
+    @NSApplicationDelegateAdaptor(AppLifecycleDelegate.self)
+    private var lifecycleDelegate
     @StateObject private var model = AppModel()
 
     var body: some Scene {

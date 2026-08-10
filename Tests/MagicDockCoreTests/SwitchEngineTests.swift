@@ -104,6 +104,62 @@ struct SwitchEngineTests {
             ])
     }
 
+    @Test("Offline claim clears stale local bonds")
+    func claimsDevicesWithoutAPeer() async throws {
+        let bluetooth = MockBluetoothManager(devices: destinationStaleDevices)
+        let engine = SwitchEngine(
+            bluetooth: bluetooth,
+            retryPolicy: RetryPolicy(
+                pairingAttempts: 1,
+                connectionAttempts: 1,
+                delays: [],
+                handoffSettleDelay: .zero
+            )
+        )
+
+        try await engine.claim(configuredDevices)
+
+        let operations = await bluetooth.operations
+        #expect(
+            operations == [
+                "unpair:AA:BB:CC:DD:EE:01",
+                "pair:AA:BB:CC:DD:EE:01",
+                "connect:AA:BB:CC:DD:EE:01",
+                "unpair:AA:BB:CC:DD:EE:02",
+                "pair:AA:BB:CC:DD:EE:02",
+                "connect:AA:BB:CC:DD:EE:02",
+            ])
+    }
+
+    @Test("Termination release does not roll back failures")
+    func releasesBestEffortBeforeTermination() async {
+        let sourceDevices = configuredDevices.map {
+            BluetoothDeviceSnapshot(
+                address: $0.address,
+                name: $0.name,
+                kind: $0.kind,
+                isPaired: true,
+                isConnected: true
+            )
+        }
+        let bluetooth = MockBluetoothManager(
+            devices: sourceDevices,
+            failingUnpairAddress: "AA:BB:CC:DD:EE:02"
+        )
+        let engine = SwitchEngine(bluetooth: bluetooth)
+
+        await engine.releaseBeforeTermination(configuredDevices, waitTimeout: .zero)
+
+        let operations = await bluetooth.operations
+        #expect(
+            operations == [
+                "unpair:AA:BB:CC:DD:EE:01",
+                "unpair:AA:BB:CC:DD:EE:02",
+            ])
+        #expect(await bluetooth.snapshot(for: "AA:BB:CC:DD:EE:01")?.isPaired == false)
+        #expect(await bluetooth.snapshot(for: "AA:BB:CC:DD:EE:02")?.isConnected == true)
+    }
+
     @Test("Restores local control when a release fails halfway")
     func restoresAfterPartialRelease() async {
         let sourceDevices = configuredDevices.map {

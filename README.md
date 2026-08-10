@@ -16,6 +16,7 @@ the Bluetooth handoff locally, and never require a cloud service.
 - Automatic peer discovery over the local network
 - Direct Bluetooth discovery, pairing, connection, disconnection, and removal
 - A transaction-based handoff with retries, verification, and rollback
+- Graceful device release on normal shutdown and automatic offline reclaim after startup
 - HMAC-SHA256 authenticated messages with timestamps, nonces, and replay protection
 - Pairing secrets stored in the macOS Keychain
 - Optional launch at login
@@ -52,6 +53,11 @@ After releasing the devices, the source Mac starts a three-minute recovery lease
 destination sends a completion command that cancels it. If the network exchange dies mid-transfer,
 the source makes a best-effort attempt to reclaim the keyboard and mouse when the lease expires.
 
+For the one-Mac-at-a-time workflow, MagicDock delays normal app or system termination long enough
+to remove the local pairings while Bluetooth is still available. When the other Mac starts later,
+it waits eight seconds for peer discovery and then reclaims the released devices locally. A manual
+**Take Offline Control** action is also available when the other Mac is not running.
+
 ## Build
 
 Requirements:
@@ -87,7 +93,8 @@ and choose **Open**. Official notarized releases are not part of the MVP yet.
 3. On the Mac currently connected to the keyboard and mouse, confirm both devices are selected.
 4. Open **Secure pairing**, copy that Mac's key, and enter the same key on the other Mac.
 5. Wait for the other Mac to appear. If needed, use **Sync from peer** to copy the device list.
-6. On the destination Mac, click **Take Control**.
+6. Enable **Launch MagicDock at login** and **Auto-connect when the other Mac is off** on both Macs.
+7. On the destination Mac, click **Take Control**.
 
 The pairing key is generated locally, stored in Keychain, and never sent over the network. Sharing
 the key is the explicit trust step between the two installations.
@@ -111,7 +118,9 @@ protocols so the full handoff and rollback flows can be tested without touching 
 - End-to-end reliability depends on the exact Magic device firmware and macOS Bluetooth stack.
 - The private removal selector prevents Mac App Store distribution.
 - Some keyboard pairing modes may display a six-digit passkey that must be typed on the keyboard.
-- Both Macs must be awake and reachable on the same local network.
+- Both Macs must be awake and reachable on the same local network for a live handoff. Offline
+  reclaim works after the previous owner completed a normal shutdown with MagicDock running.
+- A forced power-off or force-quit cannot give MagicDock time to release the devices.
 - The current build script produces a binary for the architecture of the Mac that runs it. Build on
   each Mac when mixing Apple silicon and Intel hardware.
 - Automatic switching when a USB-C dock is attached is planned, not included in the current MVP.

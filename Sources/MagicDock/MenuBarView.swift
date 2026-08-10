@@ -48,9 +48,13 @@ struct MenuBarView: View {
                 .foregroundStyle(.secondary)
 
             if model.peers.isEmpty {
-                Label("No Mac found on the local network", systemImage: "wifi.slash")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Label("Other Mac offline", systemImage: "power")
+                        .font(.callout)
+                    Text("Offline control is available for previously configured devices.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 Picker(
                     "Destination",
@@ -154,7 +158,7 @@ struct MenuBarView: View {
                         ProgressView()
                             .controlSize(.small)
                     }
-                    Text(model.hasControl ? "Already in control" : "Take Control")
+                    Text(model.takeControlTitle)
                     Spacer()
                 }
             }
@@ -210,6 +214,19 @@ struct MenuBarView: View {
                     set: { model.setLaunchAtLogin($0) }
                 )
             )
+
+            Toggle(
+                "Auto-connect when the other Mac is off",
+                isOn: Binding(
+                    get: { model.automaticallyClaimOffline },
+                    set: { model.setAutomaticallyClaimOffline($0) }
+                )
+            )
+            Text(
+                "After startup, MagicDock waits briefly for the other Mac, then reconnects released devices automatically."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -219,7 +236,7 @@ struct MenuBarView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
-            Button("Quit") {
+            Button("Release & Quit") {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")
