@@ -227,6 +227,25 @@ struct MenuBarView: View {
             )
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            Toggle(
+                "Switch automatically with this dock",
+                isOn: Binding(
+                    get: { model.automaticallySwitchWithDock },
+                    set: { model.setAutomaticallySwitchWithDock($0) }
+                )
+            )
+            HStack(spacing: 5) {
+                Image(systemName: model.isDockConnected ? "display" : "laptopcomputer")
+                Text(model.isDockConnected ? "Dock connected" : "Dock disconnected")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            Text(
+                "When this Mac leaves the powered external display, it releases the devices. The Mac connected to the dock takes control automatically."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 

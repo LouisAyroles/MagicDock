@@ -17,6 +17,7 @@ the Bluetooth handoff locally, and never require a cloud service.
 - Direct Bluetooth discovery, pairing, connection, disconnection, and removal
 - A transaction-based handoff with retries, verification, and rollback
 - Graceful device release on normal shutdown and automatic offline reclaim after startup
+- Optional automatic handoff when moving the shared USB-C dock between Macs
 - HMAC-SHA256 authenticated messages with timestamps, nonces, and replay protection
 - Pairing secrets stored in the macOS Keychain
 - Optional launch at login
@@ -58,6 +59,12 @@ to remove the local pairings while Bluetooth is still available. When the other 
 it waits eight seconds for peer discovery and then reclaims the released devices locally. A manual
 **Take Offline Control** action is also available when the other Mac is not running.
 
+With **Switch automatically with this dock** enabled, MagicDock treats an external display as a
+dock connection. When that display and external power both disappear, the current Mac releases its
+devices. When the display appears on the other Mac, that Mac waits briefly for peer discovery and
+takes control. External power alone is deliberately treated as ambiguous, so a sleeping display
+does not trigger a false handoff.
+
 ## Build
 
 Requirements:
@@ -94,7 +101,8 @@ and choose **Open**. Official notarized releases are not part of the MVP yet.
 4. Open **Secure pairing**, copy that Mac's key, and enter the same key on the other Mac.
 5. Wait for the other Mac to appear. If needed, use **Sync from peer** to copy the device list.
 6. Enable **Launch MagicDock at login** and **Auto-connect when the other Mac is off** on both Macs.
-7. On the destination Mac, click **Take Control**.
+7. For a shared powered display dock, enable **Switch automatically with this dock** on both Macs.
+8. On the destination Mac, click **Take Control** for the first test. Future dock moves are automatic.
 
 The pairing key is generated locally, stored in Keychain, and never sent over the network. Sharing
 the key is the explicit trust step between the two installations.
@@ -123,7 +131,9 @@ protocols so the full handoff and rollback flows can be tested without touching 
 - A forced power-off or force-quit cannot give MagicDock time to release the devices.
 - The current build script produces a binary for the architecture of the Mac that runs it. Build on
   each Mac when mixing Apple silicon and Intel hardware.
-- Automatic switching when a USB-C dock is attached is planned, not included in the current MVP.
+- Automatic dock switching requires a dock or monitor that provides an external display signal.
+  MagicDock also uses the loss of external power to confirm a disconnection and avoid false
+  handoffs while the display sleeps.
 
 ## Security
 

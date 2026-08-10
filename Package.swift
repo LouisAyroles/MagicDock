@@ -30,6 +30,7 @@ let package = Package(
             name: "MagicDock",
             dependencies: ["MagicDockCore"],
             linkerSettings: [
+                .linkedFramework("IOKit"),
                 .linkedFramework("Security"),
                 .linkedFramework("ServiceManagement"),
             ]

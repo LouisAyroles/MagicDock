@@ -198,13 +198,14 @@ public actor SwitchEngine {
         progress(.init(phase: .complete, message: "Devices reclaimed."))
     }
 
-    /// Relinquishes local devices without attempting rollback. This is used during normal app or
-    /// system termination, when reconnecting the devices to a Mac that is shutting down would be
-    /// counterproductive. The operation waits briefly for an in-flight handoff, then gives up so it
-    /// cannot hold up macOS indefinitely.
-    public func releaseBeforeTermination(
+    /// Relinquishes local devices without attempting rollback. This is used when the Mac is
+    /// shutting down or leaving its workstation dock, where immediately reclaiming the devices
+    /// would be counterproductive. The operation waits briefly for an in-flight handoff, then
+    /// gives up so it cannot block the caller indefinitely.
+    public func releaseBestEffort(
         _ devices: [ConfiguredPeripheral],
         waitTimeout: Duration = .seconds(3),
+        message: String = "Releasing devices…",
         progress: @escaping ProgressHandler = { _ in }
     ) async {
         let clock = ContinuousClock()
@@ -221,11 +222,24 @@ public actor SwitchEngine {
         let devices = Self.unique(devices)
         guard !devices.isEmpty else { return }
 
-        progress(.init(phase: .releasingSource, message: "Releasing devices before shutdown…"))
+        progress(.init(phase: .releasingSource, message: message))
         for peripheral in devices {
             try? await releaseOne(peripheral)
         }
         progress(.init(phase: .complete, message: "Devices released for the other Mac."))
+    }
+
+    public func releaseBeforeTermination(
+        _ devices: [ConfiguredPeripheral],
+        waitTimeout: Duration = .seconds(3),
+        progress: @escaping ProgressHandler = { _ in }
+    ) async {
+        await releaseBestEffort(
+            devices,
+            waitTimeout: waitTimeout,
+            message: "Releasing devices before shutdown…",
+            progress: progress
+        )
     }
 
     private func ensureClaimed(

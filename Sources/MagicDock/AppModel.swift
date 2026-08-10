@@ -11,15 +11,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var progress = SwitchProgress(phase: .idle, message: "Ready")
     @Published private(set) var isBusy = false
     @Published private(set) var launchAtLogin = LoginItemController.isEnabled
+    @Published private(set) var isDockConnected = false
 
     let settings: SettingsStore
 
     private let bluetooth: NativeBluetoothManager
     private let switchEngine: SwitchEngine
     private let peerService: PeerService
+    private let dockMonitor = DockPresenceMonitor()
     private var refreshTask: Task<Void, Never>?
     private var releaseRecoveryTask: Task<Void, Never>?
     private var offlineClaimTask: Task<Void, Never>?
+    private var dockClaimTask: Task<Void, Never>?
 
     init() {
         let settings = SettingsStore()
@@ -40,6 +43,9 @@ final class AppModel: ObservableObject {
         }
         peerService.start()
         startRefreshingDevices()
+        dockMonitor.start { [weak self] isDocked, isInitialReading in
+            self?.handleDockStateChange(isDocked, isInitialReading: isInitialReading)
+        }
         scheduleAutomaticOfflineClaim()
     }
 
@@ -47,6 +53,10 @@ final class AppModel: ObservableObject {
         refreshTask?.cancel()
         releaseRecoveryTask?.cancel()
         offlineClaimTask?.cancel()
+        dockClaimTask?.cancel()
+        Task { @MainActor [dockMonitor] in
+            dockMonitor.stop()
+        }
         peerService.stop()
     }
 
@@ -60,6 +70,10 @@ final class AppModel: ObservableObject {
 
     var automaticallyClaimOffline: Bool {
         settings.automaticallyClaimOffline
+    }
+
+    var automaticallySwitchWithDock: Bool {
+        settings.automaticallySwitchWithDock
     }
 
     var selectedPeer: DiscoveredPeer? {
@@ -135,6 +149,23 @@ final class AppModel: ObservableObject {
         } else {
             offlineClaimTask?.cancel()
             offlineClaimTask = nil
+        }
+    }
+
+    func setAutomaticallySwitchWithDock(_ enabled: Bool) {
+        settings.automaticallySwitchWithDock = enabled
+
+        if enabled {
+            if isDockConnected {
+                scheduleDockClaim(after: .seconds(2))
+            } else {
+                offlineClaimTask?.cancel()
+                offlineClaimTask = nil
+            }
+        } else {
+            dockClaimTask?.cancel()
+            dockClaimTask = nil
+            scheduleAutomaticOfflineClaim()
         }
     }
 
@@ -239,7 +270,9 @@ final class AppModel: ObservableObject {
 
     private func scheduleAutomaticOfflineClaim() {
         offlineClaimTask?.cancel()
-        guard settings.automaticallyClaimOffline else { return }
+        guard settings.automaticallyClaimOffline,
+            !settings.automaticallySwitchWithDock || isDockConnected
+        else { return }
 
         offlineClaimTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(8))
@@ -250,6 +283,7 @@ final class AppModel: ObservableObject {
 
     private func claimOfflineIfAppropriate() async {
         guard settings.automaticallyClaimOffline,
+            !settings.automaticallySwitchWithDock || isDockConnected,
             peers.isEmpty,
             !configuredDevices.isEmpty,
             !hasControl,
@@ -265,6 +299,65 @@ final class AppModel: ObservableObject {
             await refreshDevices()
         } catch {
             progress = .init(phase: .failed, message: error.localizedDescription)
+            await refreshDevices()
+        }
+    }
+
+    private func handleDockStateChange(_ isDocked: Bool, isInitialReading: Bool) {
+        isDockConnected = isDocked
+        guard settings.automaticallySwitchWithDock else { return }
+
+        if isDocked {
+            let delay: Duration = isInitialReading ? .seconds(8) : .seconds(4)
+            scheduleDockClaim(after: delay)
+        } else {
+            dockClaimTask?.cancel()
+            dockClaimTask = nil
+            offlineClaimTask?.cancel()
+            offlineClaimTask = nil
+
+            if !isInitialReading {
+                releaseForDockDetach()
+            }
+        }
+    }
+
+    private func scheduleDockClaim(after delay: Duration) {
+        dockClaimTask?.cancel()
+        offlineClaimTask?.cancel()
+        offlineClaimTask = nil
+
+        dockClaimTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self,
+                self.settings.automaticallySwitchWithDock,
+                self.isDockConnected,
+                !self.configuredDevices.isEmpty || self.selectedPeer != nil,
+                !self.hasControl,
+                !self.isBusy
+            else { return }
+
+            self.takeControl()
+        }
+    }
+
+    private func releaseForDockDetach() {
+        let ownsAtLeastOneDevice = configuredDevices.contains {
+            deviceStates[$0.address]?.isPaired == true
+                || deviceStates[$0.address]?.isConnected == true
+        }
+        guard !isBusy, !configuredDevices.isEmpty, ownsAtLeastOneDevice else { return }
+        cancelPendingReleaseRecovery()
+        isBusy = true
+
+        Task {
+            defer { isBusy = false }
+            await switchEngine.releaseBestEffort(
+                configuredDevices,
+                waitTimeout: .seconds(2),
+                message: "Dock disconnected; releasing devices…",
+                progress: progressHandler()
+            )
             await refreshDevices()
         }
     }
@@ -388,6 +481,7 @@ final class AppModel: ObservableObject {
 
     private func releaseBeforeTermination() async {
         offlineClaimTask?.cancel()
+        dockClaimTask?.cancel()
         cancelPendingReleaseRecovery()
         peerService.stop()
         await switchEngine.releaseBeforeTermination(

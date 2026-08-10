@@ -10,6 +10,11 @@ final class SettingsStore: ObservableObject {
     @Published var automaticallyClaimOffline: Bool {
         didSet { defaults.set(automaticallyClaimOffline, forKey: Keys.automaticallyClaimOffline) }
     }
+    @Published var automaticallySwitchWithDock: Bool {
+        didSet {
+            defaults.set(automaticallySwitchWithDock, forKey: Keys.automaticallySwitchWithDock)
+        }
+    }
     @Published var selectedPeerID: String? {
         didSet { defaults.set(selectedPeerID, forKey: Keys.selectedPeerID) }
     }
@@ -27,6 +32,7 @@ final class SettingsStore: ObservableObject {
         static let didAutoselectDevices = "didAutoselectDevices"
         static let pairingKeyAccount = "peer-pairing-key"
         static let automaticallyClaimOffline = "automaticallyClaimOffline"
+        static let automaticallySwitchWithDock = "automaticallySwitchWithDock"
     }
 
     init(
@@ -48,6 +54,7 @@ final class SettingsStore: ObservableObject {
         automaticallyClaimOffline =
             defaults.object(forKey: Keys.automaticallyClaimOffline) == nil
             ? true : defaults.bool(forKey: Keys.automaticallyClaimOffline)
+        automaticallySwitchWithDock = defaults.bool(forKey: Keys.automaticallySwitchWithDock)
 
         if let data = defaults.data(forKey: Keys.configuredDevices),
             let devices = try? JSONDecoder().decode([ConfiguredPeripheral].self, from: data)
