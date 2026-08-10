@@ -315,10 +315,6 @@ final class AppModel: ObservableObject {
             dockClaimTask = nil
             offlineClaimTask?.cancel()
             offlineClaimTask = nil
-
-            if !isInitialReading {
-                releaseForDockDetach()
-            }
         }
     }
 
@@ -338,27 +334,6 @@ final class AppModel: ObservableObject {
             else { return }
 
             self.takeControl()
-        }
-    }
-
-    private func releaseForDockDetach() {
-        let ownsAtLeastOneDevice = configuredDevices.contains {
-            deviceStates[$0.address]?.isPaired == true
-                || deviceStates[$0.address]?.isConnected == true
-        }
-        guard !isBusy, !configuredDevices.isEmpty, ownsAtLeastOneDevice else { return }
-        cancelPendingReleaseRecovery()
-        isBusy = true
-
-        Task {
-            defer { isBusy = false }
-            await switchEngine.releaseBestEffort(
-                configuredDevices,
-                waitTimeout: .seconds(2),
-                message: "Dock disconnected; releasing devices…",
-                progress: progressHandler()
-            )
-            await refreshDevices()
         }
     }
 

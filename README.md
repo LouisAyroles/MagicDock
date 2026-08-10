@@ -60,10 +60,11 @@ it waits eight seconds for peer discovery and then reclaims the released devices
 **Take Offline Control** action is also available when the other Mac is not running.
 
 With **Switch automatically with this dock** enabled, MagicDock treats an external display as a
-dock connection. When that display and external power both disappear, the current Mac releases its
-devices. When the display appears on the other Mac, that Mac waits briefly for peer discovery and
-takes control. External power alone is deliberately treated as ambiguous, so a sleeping display
-does not trigger a false handoff.
+dock connection. When the display appears on the other Mac, that Mac waits briefly for peer
+discovery and starts the same live, just-in-time handoff as **Take Control**. The source keeps its
+Bluetooth connection until that request arrives, so the accessories remain reachable during the
+move. External power alone is deliberately treated as ambiguous, so a sleeping display does not
+trigger a false handoff.
 
 ## Build
 

@@ -242,7 +242,7 @@ struct MenuBarView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             Text(
-                "When this Mac leaves the powered external display, it releases the devices. The Mac connected to the dock takes control automatically."
+                "The Mac connected to the powered external display starts a live handoff automatically."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
